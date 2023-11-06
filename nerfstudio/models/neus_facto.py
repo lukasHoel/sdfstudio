@@ -38,6 +38,9 @@ from nerfstudio.model_components.losses import interlevel_loss, interlevel_loss_
 from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler
 from nerfstudio.utils import colormaps
 
+from nerfstudio.model_components.losses import (
+    distortion_loss,
+)
 
 @dataclass
 class NeuSFactoModelConfig(NeuSModelConfig):

@@ -242,7 +242,7 @@ class TCNNNerfactoField(Field):
         density = trunc_exp(density_before_activation.to(positions))
         return density, base_mlp_out
 
-    def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None):
+    def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None, no_dir_embedding: bool = False):
         assert density_embedding is not None
         outputs = {}
         if ray_samples.camera_indices is None:
@@ -304,6 +304,10 @@ class TCNNNerfactoField(Field):
             x = self.mlp_pred_normals(pred_normals_inp).view(*outputs_shape, -1).to(directions)
             outputs[FieldHeadNames.PRED_NORMALS] = self.field_head_pred_normals(x)
 
+        if no_dir_embedding:
+            d = torch.zeros_like(d)
+            embedded_appearance = torch.zeros_like(embedded_appearance)
+
         h = torch.cat(
             [
                 d,
@@ -316,6 +320,27 @@ class TCNNNerfactoField(Field):
         outputs.update({FieldHeadNames.RGB: rgb})
 
         return outputs
+
+    def forward(self, ray_samples: RaySamples, compute_normals: bool = False, no_dir_embedding: bool = False):
+        """Evaluates the field at points along the ray.
+
+        Args:
+            ray_samples: Samples to evaluate field on.
+        """
+        if compute_normals:
+            with torch.enable_grad():
+                density, density_embedding = self.get_density(ray_samples)
+        else:
+            density, density_embedding = self.get_density(ray_samples)
+
+        field_outputs = self.get_outputs(ray_samples, density_embedding=density_embedding, no_dir_embedding=no_dir_embedding)
+        field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
+
+        if compute_normals:
+            with torch.enable_grad():
+                normals = self.get_normals()
+            field_outputs[FieldHeadNames.NORMALS] = normals  # type: ignore
+        return field_outputs
 
 
 class TorchNerfactoField(Field):

@@ -208,6 +208,7 @@ class SDFStudio(DataParser):
         # print(split, indices)
 
         image_filenames = []
+        mask_filenames = []
         depth_images = []
         normal_images = []
         sensor_depth_images = []
@@ -274,7 +275,11 @@ class SDFStudio(DataParser):
                 else:
                     # filenames format is 000000_foreground_mask.png
                     foreground_mask = np.array(Image.open(self.config.data / frame["foreground_mask"]), dtype="uint8")
-                foreground_mask = foreground_mask[..., :1]
+                    #mask_filenames.append(self.config.data / frame["foreground_mask"])
+                if foreground_mask.ndim == 3:
+                    foreground_mask = foreground_mask[..., :1]
+                elif foreground_mask.ndim == 2:
+                    foreground_mask = foreground_mask[..., None]
                 foreground_mask_images.append(torch.from_numpy(foreground_mask).float() / 255.0)
 
             if self.config.include_sfm_points:
@@ -420,6 +425,7 @@ class SDFStudio(DataParser):
             cameras=cameras,
             scene_box=scene_box,
             additional_inputs=additional_inputs_dict,
+            mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
             depths=filter_list(depth_images, indices),
             normals=filter_list(normal_images, indices),
         )

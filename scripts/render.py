@@ -42,7 +42,7 @@ def _render_trajectory_video(
     rendered_output_names: List[str],
     rendered_resolution_scaling_factor: float = 1.0,
     seconds: float = 5.0,
-    output_format: Literal["images", "video"] = "video",
+    output_format: Literal["images", "video"] = "images",
 ) -> None:
     """Helper function to create a video of the spiral trajectory.
 
