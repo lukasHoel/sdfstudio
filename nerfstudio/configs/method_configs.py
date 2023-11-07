@@ -72,6 +72,7 @@ from nerfstudio.models.vanilla_nerf import NeRFModel, VanillaModelConfig
 from nerfstudio.models.volsdf import VolSDFModelConfig
 from nerfstudio.models.nerfacto_mvdiff import NerfactoMVDiffModelConfig
 from nerfstudio.models.neus_facto_mvdiff import NeuSFactoMVDiffModelConfig
+from nerfstudio.models.instant_ngp_mvdiff import InstantNGPMVDiffModelConfig
 from nerfstudio.pipelines.base_pipeline import (
     FlexibleInputPipelineConfig,
     VanillaPipelineConfig,
@@ -109,6 +110,7 @@ descriptions = {
     "neus-facto-angelo": "Implementation of Neuralangelo with neus-facto",
     "neus-facto-mvdiff": "Implementation of neus-facto for mvdiff method",
     "nerfacto-mvdiff": "Implementation of nerfacto for mvdiff method",
+    "instant-ngp-mvdiff": "Implementation of Instant-NGP for mvdiff method",
 }
 
 
@@ -1173,7 +1175,7 @@ method_configs["nerfacto-mvdiff"] = Config(
     ),
     pipeline=VanillaPipelineConfig(
         datamanager=VanillaDataManagerConfig(
-            dataparser=SDFStudioDataParserConfig(auto_orient=False, auto_scale_poses=False, include_foreground_mask=True),
+            dataparser=SDFStudioDataParserConfig(auto_orient=True, auto_scale_poses=True, include_foreground_mask=True),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=4096,
         ),
@@ -1250,6 +1252,33 @@ method_configs["neus-facto-mvdiff"] = Config(
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+    vis="viewer",
+)
+
+method_configs["instant-ngp-mvdiff"] = Config(
+    method_name="instant-ngp-mvdiff",
+    trainer=TrainerConfig(
+        steps_per_eval_batch=5000,
+        steps_per_eval_image=5000,
+        steps_per_save=20000,
+        max_num_iterations=20001,
+        mixed_precision=True,
+        steps_per_eval_all_images=20000,
+    ),
+    pipeline=DynamicBatchPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=SDFStudioDataParserConfig(auto_orient=True, auto_scale_poses=True, include_foreground_mask=True),
+            train_num_rays_per_batch=8192
+        ),
+        model=InstantNGPMVDiffModelConfig(render_step_size=0.005, eval_num_rays_per_chunk=8192, background_color="white", fg_mask_loss_mult=100.0),
+    ),
+    optimizers={
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": MultiStepSchedulerConfig(max_steps=20000),
+        }
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=64000),
     vis="viewer",
 )
 

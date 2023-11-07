@@ -148,7 +148,7 @@ class NerfactoMVDiffModel(Model):
             num_levels=self.config.num_levels,
             max_res=self.config.max_res,
             log2_hashmap_size=self.config.log2_hashmap_size,
-            spatial_distortion=scene_contraction,
+            spatial_distortion=None, # scene_contraction,
             num_images=self.num_train_data,
             use_pred_normals=self.config.predict_normals,
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
@@ -324,6 +324,7 @@ class NerfactoMVDiffModel(Model):
             if "fg_mask" in batch and self.config.fg_mask_loss_mult > 0.0:
                 with torch.autocast(enabled=False, device_type="cuda"):
                     fg_label = batch["fg_mask"].float().to(self.device)
+                    raise ValueError(fg_label.shape, outputs["weights"].shape)
                     weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)
                     loss_dict["fg_mask_loss"] = (
                         F.binary_cross_entropy(weights_sum, fg_label) * self.config.fg_mask_loss_mult
