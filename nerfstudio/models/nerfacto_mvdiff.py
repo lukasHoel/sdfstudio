@@ -54,7 +54,7 @@ from nerfstudio.model_components.renderers import (
     NormalsRenderer,
     RGBRenderer,
 )
-from nerfstudio.model_components.scene_colliders import NearFarCollider, AABBBoxCollider
+from nerfstudio.model_components.scene_colliders import NearFarCollider, AABBBoxCollider, SphereCollider
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.colors import get_color
@@ -188,8 +188,14 @@ class NerfactoMVDiffModel(Model):
 
         # Collider
         # (MV-DIFF) We replace it with aabb-box collider to not shoot rays outside the bbox of the object
-        #self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
-        self.collider = AABBBoxCollider(scene_box=self.scene_box, near_plane=self.config.near_plane)
+        if self.scene_box.collider_type == "box":
+            self.collider = AABBBoxCollider(scene_box=self.scene_box, near_plane=0.05)
+        elif self.scene_box.collider_type == "sphere":
+            self.collider = SphereCollider(radius=self.scene_box.radius, soft_intersection=False)
+        elif self.scene_box.collider_type == "near_far":
+            self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
+        else:
+            raise NotImplementedError("unsupported collider_type", self.scene_box.collider_type)
 
         # renderers
         background_color = (
@@ -204,8 +210,8 @@ class NerfactoMVDiffModel(Model):
 
         # losses
         # (MV-DIFF) We replace it with l1 loss to have better outlier acceptance
-        #self.rgb_loss = MSELoss()
-        self.rgb_loss = torch.nn.SmoothL1Loss()
+        self.rgb_loss = MSELoss()
+        #self.rgb_loss = torch.nn.SmoothL1Loss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -306,9 +312,11 @@ class NerfactoMVDiffModel(Model):
         image = batch["image"].to(self.device)
         loss_dict["rgb_loss"] = self.rgb_loss(image, outputs["rgb"])
         if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
+            # loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+            #     outputs["weights_list"], outputs["ray_samples_list"]
+            # )
+
+            loss_dict["interlevel_loss"] = torch.zeros_like(loss_dict["rgb_loss"])
 
             if "fg_mask" in batch and self.config.fg_mask_loss_mult > 0.0:
                 with torch.autocast(enabled=False, device_type="cuda"):
