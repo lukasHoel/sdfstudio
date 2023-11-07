@@ -53,7 +53,7 @@ from nerfstudio.model_components.renderers import (
     NormalsRenderer,
     RGBRenderer,
 )
-from nerfstudio.model_components.scene_colliders import NearFarCollider, AABBBoxCollider
+from nerfstudio.model_components.scene_colliders import NearFarCollider
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps
 from nerfstudio.utils.colors import get_color
@@ -180,9 +180,7 @@ class NerfactoModel(Model):
         )
 
         # Collider
-        # (MV-DIFF) We replace it with aabb-box collider to not shoot rays outside the bbox of the object
-        #self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
-        self.collider = AABBBoxCollider(scene_box=self.scene_box, near_plane=self.config.near_plane)
+        self.collider = NearFarCollider(near_plane=self.config.near_plane, far_plane=self.config.far_plane)
 
         # renderers
         background_color = (
@@ -196,7 +194,6 @@ class NerfactoModel(Model):
         self.renderer_normals = NormalsRenderer()
 
         # losses
-        # (MV-DIFF) We replace it with l1 loss to have better outlier acceptance
         self.rgb_loss = MSELoss()
 
         # metrics

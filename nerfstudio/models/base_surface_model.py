@@ -414,8 +414,6 @@ class SurfaceModel(Model):
                 loss_dict["fg_mask_loss"] = (
                     F.binary_cross_entropy(weights_sum, fg_label) * self.config.fg_mask_loss_mult
                 )
-            else:
-                raise ValueError("do not use fg_mask loss")
 
             # monocular normal loss
             if "normal" in batch and self.config.mono_normal_loss_mult > 0.0:
