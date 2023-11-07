@@ -140,8 +140,11 @@ class NerfactoMVDiffModel(Model):
         scene_contraction = SceneContraction(order=float("inf"))
 
         # Fields
+        field_aabb = self.scene_box.aabb.clone()
+        field_aabb[0, :] = -1.0
+        field_aabb[1, :] = 1.0
         self.field = TCNNNerfactoField(
-            self.scene_box.aabb,
+            field_aabb,
             num_levels=self.config.num_levels,
             max_res=self.config.max_res,
             log2_hashmap_size=self.config.log2_hashmap_size,
@@ -312,11 +315,11 @@ class NerfactoMVDiffModel(Model):
         image = batch["image"].to(self.device)
         loss_dict["rgb_loss"] = self.rgb_loss(image, outputs["rgb"])
         if self.training:
-            # loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-            #     outputs["weights_list"], outputs["ray_samples_list"]
-            # )
+            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+                outputs["weights_list"], outputs["ray_samples_list"]
+            )
 
-            loss_dict["interlevel_loss"] = torch.zeros_like(loss_dict["rgb_loss"])
+            # loss_dict["interlevel_loss"] = torch.zeros_like(loss_dict["rgb_loss"])
 
             if "fg_mask" in batch and self.config.fg_mask_loss_mult > 0.0:
                 with torch.autocast(enabled=False, device_type="cuda"):
