@@ -23,6 +23,7 @@ from typing import Dict, List, Tuple, Type
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.nn import Parameter
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.functional import structural_similarity_index_measure
@@ -60,15 +61,16 @@ from nerfstudio.utils.colors import get_color
 
 
 @dataclass
-class NerfactoModelConfig(ModelConfig):
+class NerfactoMVDiffModelConfig(ModelConfig):
     """Nerfacto Model Config"""
 
-    _target: Type = field(default_factory=lambda: NerfactoModel)
+    _target: Type = field(default_factory=lambda: NerfactoMVDiffModel)
     near_plane: float = 0.05
     """How far along the ray to start sampling."""
     far_plane: float = 1000.0
     """How far along the ray to stop sampling."""
-    background_color: Literal["random", "last_sample", "white", "black"] = "last_sample"
+    # (MV-DIFF) we set background color to white because we use masked out images
+    background_color: Literal["random", "last_sample", "white", "black"] = "white"
     """Whether to randomize the background color."""
     num_levels: int = 16
     """Number of levels of the hashmap for the base mlp."""
@@ -97,7 +99,11 @@ class NerfactoModelConfig(ModelConfig):
     """Arguments for the proposal density fields."""
     interlevel_loss_mult: float = 1.0
     """Proposal loss multiplier."""
-    distortion_loss_mult: float = 0.002
+    # (MV-DIFF) we use foreground loss to not have floaters in the masked-out regions
+    fg_mask_loss_mult: float = 100.0
+    """Foreground mask loss multiplier."""
+    # (MV-DIFF) we use high distortion-loss weight to not have floaters near the surface
+    distortion_loss_mult: float = 10.0
     """Distortion loss multiplier."""
     orientation_loss_mult: float = 0.0001
     """Orientation loss multipier on computed noramls."""
@@ -105,7 +111,8 @@ class NerfactoModelConfig(ModelConfig):
     """Predicted normal loss multiplier."""
     use_proposal_weight_anneal: bool = True
     """Whether to use proposal weight annealing."""
-    use_average_appearance_embedding: bool = True
+    # (MV-DIFF) We do not use this to not have view-dependent effects
+    use_average_appearance_embedding: bool = False
     """Whether to use average appearance embedding or zeros for inference."""
     proposal_weights_anneal_slope: float = 10.0
     """Slope of the annealing function for the proposal weights."""
@@ -117,14 +124,14 @@ class NerfactoModelConfig(ModelConfig):
     """Whether to predict normals or not."""
 
 
-class NerfactoModel(Model):
+class NerfactoMVDiffModel(Model):
     """Nerfacto model
 
     Args:
         config: Nerfacto configuration to instantiate model
     """
 
-    config: NerfactoModelConfig
+    config: NerfactoMVDiffModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -197,7 +204,8 @@ class NerfactoModel(Model):
 
         # losses
         # (MV-DIFF) We replace it with l1 loss to have better outlier acceptance
-        self.rgb_loss = MSELoss()
+        #self.rgb_loss = MSELoss()
+        self.rgb_loss = torch.nn.SmoothL1Loss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -243,7 +251,8 @@ class NerfactoModel(Model):
 
     def get_outputs(self, ray_bundle: RayBundle):
         ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
-        field_outputs = self.field(ray_samples, compute_normals=self.config.predict_normals)
+        # (MV-DIFF) We do not use view-dependent effects during training
+        field_outputs = self.field(ray_samples, compute_normals=self.config.predict_normals, no_dir_embedding=True)
         weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
@@ -256,6 +265,7 @@ class NerfactoModel(Model):
             "rgb": rgb,
             "accumulation": accumulation,
             "depth": depth,
+            "weights": weights,
         }
 
         if self.config.predict_normals:
@@ -299,6 +309,15 @@ class NerfactoModel(Model):
             loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
                 outputs["weights_list"], outputs["ray_samples_list"]
             )
+
+            if "fg_mask" in batch and self.config.fg_mask_loss_mult > 0.0:
+                with torch.autocast(enabled=False, device_type="cuda"):
+                    fg_label = batch["fg_mask"].float().to(self.device)
+                    weights_sum = outputs["weights"].sum(dim=1).clip(1e-3, 1.0 - 1e-3)
+                    loss_dict["fg_mask_loss"] = (
+                        F.binary_cross_entropy(weights_sum, fg_label) * self.config.fg_mask_loss_mult
+                    )
+
             assert metrics_dict is not None and "distortion" in metrics_dict
             loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
             if self.config.predict_normals:
