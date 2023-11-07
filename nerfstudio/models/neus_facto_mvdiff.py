@@ -43,10 +43,10 @@ from nerfstudio.model_components.losses import (
 )
 
 @dataclass
-class NeuSFactoModelConfig(NeuSModelConfig):
+class NeuSFactoMVDiffModelConfig(NeuSModelConfig):
     """UniSurf Model Config"""
 
-    _target: Type = field(default_factory=lambda: NeuSFactoModel)
+    _target: Type = field(default_factory=lambda: NeuSFactoMVDiffModel)
     num_proposal_samples_per_ray: Tuple[int, ...] = (256, 96)
     """Number of samples per ray for the proposal network."""
     num_neus_samples_per_ray: int = 48
@@ -66,6 +66,9 @@ class NeuSFactoModelConfig(NeuSModelConfig):
         ]
     )
     """Arguments for the proposal density fields."""
+    # (MV-DIFF) we use distortion-loss to not have floaters near the surface
+    distortion_loss_mult: float = 1.0
+    """Distortion loss multiplier."""
     interlevel_loss_mult: float = 1.0
     """Proposal loss multiplier."""
     use_proposal_weight_anneal: bool = True
@@ -101,14 +104,14 @@ class NeuSFactoModelConfig(NeuSModelConfig):
     """steps per level of multi-resolution hash encoding"""
 
 
-class NeuSFactoModel(NeuSModel):
+class NeuSFactoMVDiffModel(NeuSModel):
     """NeuS facto model
 
     Args:
         config: NeuS configuration to instantiate model
     """
 
-    config: NeuSFactoModelConfig
+    config: NeuSFactoMVDiffModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -312,6 +315,9 @@ class NeuSFactoModel(NeuSModel):
                 outputs["weights_list"], outputs["ray_samples_list"]
             )
 
+            # (MV-DIFF) we add distortion loss calculation
+            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+
         # curvature loss
         if self.training and self.config.curvature_loss_multi > 0.0:
             delta = self.field.numerical_gradients_delta
@@ -338,6 +344,8 @@ class NeuSFactoModel(NeuSModel):
             metrics_dict["numerical_gradients_delta"] = self.field.numerical_gradients_delta
             metrics_dict["curvature_loss_multi"] = self.curvature_loss_multi_factor * self.config.curvature_loss_multi
 
+            # (MV-DIFF) we add distortion loss calculation
+            metrics_dict["distortion"] = distortion_loss(outputs["weights_list"], outputs["ray_samples_list"])
         return metrics_dict
 
     def get_image_metrics_and_images(
