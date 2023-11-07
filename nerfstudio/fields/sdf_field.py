@@ -155,6 +155,9 @@ class SDFFieldConfig(FieldConfig):
     """feature grid encoding type"""
     position_encoding_max_degree: int = 6
     """positional encoding max degree"""
+    # (MV-Diff) we do not want view-dependent effects
+    disable_view_dependent_effects: bool = False
+    """If true, disables ray direction input to rgb network."""
     use_diffuse_color: bool = False
     """whether to use diffuse color as in ref-nerf"""
     use_specular_tint: bool = False
@@ -546,6 +549,9 @@ class SDFField(Field):
             d = self.direction_encoding(refdirs)
         else:
             d = self.direction_encoding(directions)
+
+        if self.config.disable_view_dependent_effects:
+            d = torch.zeros_like(d)
 
         # appearance
         if self.training:
