@@ -193,7 +193,7 @@ method_configs["neuralangelo"] = Config(
         steps_per_eval_image=5000,
         steps_per_eval_batch=5000,
         steps_per_save=20000,
-        steps_per_eval_all_images=5000,  # set to a very large model so we don't eval with all images
+        steps_per_eval_all_images=20000,  # set to a very large model so we don't eval with all images
         max_num_iterations=500_001,
         mixed_precision=False,
     ),
