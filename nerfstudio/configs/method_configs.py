@@ -70,6 +70,9 @@ from nerfstudio.models.tensorf import TensoRFModelConfig
 from nerfstudio.models.unisurf import UniSurfModelConfig
 from nerfstudio.models.vanilla_nerf import NeRFModel, VanillaModelConfig
 from nerfstudio.models.volsdf import VolSDFModelConfig
+from nerfstudio.models.nerfacto_mvdiff import NerfactoMVDiffModelConfig
+from nerfstudio.models.neus_facto_mvdiff import NeuSFactoMVDiffModelConfig
+from nerfstudio.models.instant_ngp_mvdiff import InstantNGPMVDiffModelConfig
 from nerfstudio.pipelines.base_pipeline import (
     FlexibleInputPipelineConfig,
     VanillaPipelineConfig,
@@ -105,6 +108,9 @@ descriptions = {
     "neuralangelo": "Implementation of Neuralangelo",
     "bakedangelo": "Implementation of Neuralangelo with BakedSDF",
     "neus-facto-angelo": "Implementation of Neuralangelo with neus-facto",
+    "neus-facto-mvdiff": "Implementation of neus-facto for mvdiff method",
+    "nerfacto-mvdiff": "Implementation of nerfacto for mvdiff method",
+    "instant-ngp-mvdiff": "Implementation of Instant-NGP for mvdiff method",
 }
 
 
@@ -1159,6 +1165,122 @@ method_configs["phototourism"] = Config(
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+    vis="viewer",
+)
+
+method_configs["nerfacto-mvdiff"] = Config(
+    method_name="nerfacto-mvdiff",
+    trainer=TrainerConfig(
+        steps_per_eval_batch=5000, steps_per_save=2000, max_num_iterations=30000, mixed_precision=True
+    ),
+    pipeline=VanillaPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=SDFStudioDataParserConfig(auto_orient=True, auto_scale_poses=True, include_foreground_mask=True),
+            train_num_rays_per_batch=4096,
+            eval_num_rays_per_batch=4096,
+        ),
+        model=NerfactoMVDiffModelConfig(
+            eval_num_rays_per_chunk=1 << 15,
+            fg_mask_loss_mult=100.0,
+            background_color="white",
+            distortion_loss_mult=10.0,
+            use_average_appearance_embedding=False
+        ),
+    ),
+    optimizers={
+        "proposal_networks": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": MultiStepSchedulerConfig(max_steps=300000),
+        },
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": MultiStepSchedulerConfig(max_steps=300000),
+        },
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+    vis="viewer",
+)
+
+method_configs["neus-facto-mvdiff"] = Config(
+    method_name="neus-facto-mvdiff",
+    trainer=TrainerConfig(
+        steps_per_eval_image=5000,
+        steps_per_eval_batch=5000,
+        steps_per_save=20000,
+        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+        max_num_iterations=20001,
+        mixed_precision=False,
+    ),
+    pipeline=VanillaPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=SDFStudioDataParserConfig(auto_orient=True, auto_scale_poses=True, include_foreground_mask=True),
+            train_num_rays_per_batch=2048,
+            eval_num_rays_per_batch=1024,
+        ),
+        model=NeuSFactoMVDiffModelConfig(
+            sdf_field=SDFFieldConfig(
+                use_grid_feature=True,
+                num_layers=2,
+                num_layers_color=2,
+                hidden_dim=256,
+                bias=0.5,
+                beta_init=0.3,
+                use_appearance_embedding=False,
+                inside_outside=False,
+                use_diffuse_color=True,
+                disable_view_dependent_effects=True
+            ),
+            background_model="none",
+            eval_num_rays_per_chunk=1024,
+            fg_mask_loss_mult=4.0,
+            eikonal_loss_mult=0.8,
+            distortion_loss_mult=10.0,
+            background_color="white",
+            use_average_appearance_embedding=False,
+        ),
+    ),
+    optimizers={
+        "proposal_networks": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": MultiStepSchedulerConfig(max_steps=20000),
+        },
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
+            "scheduler": NeuSSchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20000),
+        },
+        "field_background": {
+            "optimizer": AdamOptimizerConfig(lr=5e-4, eps=1e-15),
+            "scheduler": NeuSSchedulerConfig(warm_up_end=500, learning_rate_alpha=0.05, max_steps=20000),
+        },
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+    vis="viewer",
+)
+
+method_configs["instant-ngp-mvdiff"] = Config(
+    method_name="instant-ngp-mvdiff",
+    trainer=TrainerConfig(
+        steps_per_eval_batch=5000,
+        steps_per_eval_image=5000,
+        steps_per_save=20000,
+        max_num_iterations=20001,
+        mixed_precision=True,
+        steps_per_eval_all_images=20000,
+    ),
+    pipeline=DynamicBatchPipelineConfig(
+        datamanager=VanillaDataManagerConfig(
+            dataparser=SDFStudioDataParserConfig(auto_orient=True, auto_scale_poses=True, include_foreground_mask=True),
+            train_num_rays_per_batch=8192
+        ),
+        model=InstantNGPMVDiffModelConfig(render_step_size=0.005, eval_num_rays_per_chunk=8192, background_color="white", fg_mask_loss_mult=100.0),
+    ),
+    optimizers={
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15),
+            "scheduler": MultiStepSchedulerConfig(max_steps=20000),
+        }
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=64000),
     vis="viewer",
 )
 

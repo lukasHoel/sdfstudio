@@ -148,11 +148,14 @@ class TCNNInstantNGPField(Field):
         density = trunc_exp(density_before_activation.to(positions))
         return density, base_mlp_out
 
-    def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None):
+    def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[TensorType] = None, no_dir_embedding: bool = False):
         directions = get_normalized_directions(ray_samples.frustums.directions)
         directions_flat = directions.view(-1, 3)
 
         d = self.direction_encoding(directions_flat)
+        if no_dir_embedding:
+            d = torch.zeros_like(d)
+
         if density_embedding is None:
             positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
             h = torch.cat([d, positions.view(-1, 3)], dim=-1)
@@ -199,3 +202,24 @@ class TCNNInstantNGPField(Field):
 
         opacity = density * step_size
         return opacity
+
+    def forward(self, ray_samples: RaySamples, compute_normals: bool = False, no_dir_embedding: bool = False):
+        """Evaluates the field at points along the ray.
+
+        Args:
+            ray_samples: Samples to evaluate field on.
+        """
+        if compute_normals:
+            with torch.enable_grad():
+                density, density_embedding = self.get_density(ray_samples)
+        else:
+            density, density_embedding = self.get_density(ray_samples)
+
+        field_outputs = self.get_outputs(ray_samples, density_embedding=density_embedding, no_dir_embedding=no_dir_embedding)
+        field_outputs[FieldHeadNames.DENSITY] = density  # type: ignore
+
+        if compute_normals:
+            with torch.enable_grad():
+                normals = self.get_normals()
+            field_outputs[FieldHeadNames.NORMALS] = normals  # type: ignore
+        return field_outputs

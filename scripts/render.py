@@ -5,6 +5,7 @@ render.py
 from __future__ import annotations
 
 import json
+import imageio
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,7 +43,7 @@ def _render_trajectory_video(
     rendered_output_names: List[str],
     rendered_resolution_scaling_factor: float = 1.0,
     seconds: float = 5.0,
-    output_format: Literal["images", "video"] = "video",
+    output_format: Literal["images", "video", "both"] = "both",
 ) -> None:
     """Helper function to create a video of the spiral trajectory.
 
@@ -68,7 +69,7 @@ def _render_trajectory_video(
         TimeRemainingColumn(elapsed_when_finished=True, compact=True),
     )
     output_image_dir = output_filename.parent / output_filename.stem
-    if output_format == "images":
+    if output_format == "images" or output_format == "both":
         output_image_dir.mkdir(parents=True, exist_ok=True)
     with progress:
         for camera_idx in progress.track(range(cameras.size), description=""):
@@ -85,17 +86,18 @@ def _render_trajectory_video(
                 output_image = outputs[rendered_output_name].cpu().numpy()
                 render_image.append(output_image)
             render_image = np.concatenate(render_image, axis=1)
-            if output_format == "images":
+            if output_format == "images" or output_format == "both":
                 media.write_image(output_image_dir / f"{camera_idx:05d}.png", render_image)
-            else:
+            if output_format == "video" or output_format == "both":
                 images.append(render_image)
 
-    if output_format == "video":
+    if output_format == "video" or output_format == "both":
         fps = len(images) / seconds
         # make the folder if it doesn't exist
         output_filename.parent.mkdir(parents=True, exist_ok=True)
         with CONSOLE.status("[yellow]Saving video", spinner="bouncingBall"):
             media.write_video(output_filename, images, fps=fps)
+            imageio.mimsave(str(output_filename).replace(".mp4", ".gif"), images)
     CONSOLE.rule("[green] :tada: :tada: :tada: Success :tada: :tada: :tada:")
     CONSOLE.print(f"[green]Saved video to {output_filename}", justify="center")
 
@@ -119,7 +121,7 @@ class RenderTrajectory:
     # How long the video should be.
     seconds: float = 5.0
     # How to save output data.
-    output_format: Literal["images", "video"] = "video"
+    output_format: Literal["images", "video", "both"] = "both"
     # Specifies number of rays per chunk during eval.
     eval_num_rays_per_chunk: Optional[int] = None
 
