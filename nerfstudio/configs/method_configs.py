@@ -187,7 +187,7 @@ method_configs["neuralangelo"] = Config(
         steps_per_eval_image=5000,
         steps_per_eval_batch=5000,
         steps_per_save=20000,
-        steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
+        steps_per_eval_all_images=5000,  # set to a very large model so we don't eval with all images
         max_num_iterations=500_001,
         mixed_precision=False,
     ),
@@ -452,11 +452,11 @@ method_configs["neus-facto-angelo"] = Config(
 method_configs["neus-facto"] = Config(
     method_name="neus-facto",
     trainer=TrainerConfig(
-        steps_per_eval_image=5000,
-        steps_per_eval_batch=5000,
+        steps_per_eval_image=1000,
+        steps_per_eval_batch=1000,
         steps_per_save=20000,
         steps_per_eval_all_images=1000000,  # set to a very large model so we don't eval with all images
-        max_num_iterations=20001,
+        max_num_iterations=30001,
         mixed_precision=False,
     ),
     pipeline=VanillaPipelineConfig(

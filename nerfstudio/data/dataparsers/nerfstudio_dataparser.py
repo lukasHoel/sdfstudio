@@ -21,6 +21,7 @@ from pathlib import Path, PurePath
 from typing import Optional, Type
 
 import numpy as np
+import cv2
 import torch
 from PIL import Image
 from rich.console import Console
@@ -76,9 +77,15 @@ class Nerfstudio(DataParser):
     def _generate_dataparser_outputs(self, split="train"):
         # pylint: disable=too-many-statements
 
-        meta = load_from_json(self.config.data / "transforms.json")
+        if self.config.data.suffix == ".json":
+            meta = load_from_json(self.config.data)
+            data_dir = self.config.data.parent
+        else:
+            meta = load_from_json(self.config.data / "transforms.json")
+            data_dir = self.config.data
         image_filenames = []
         mask_filenames = []
+        depth_filenames = []
         poses = []
         num_skipped_image_filenames = 0
 
@@ -103,7 +110,7 @@ class Nerfstudio(DataParser):
 
         for frame in meta["frames"]:
             filepath = PurePath(frame["file_path"])
-            fname = self._get_fname(filepath)
+            fname = self._get_fname(filepath, data_dir)
             if not fname.exists():
                 num_skipped_image_filenames += 1
                 continue
@@ -142,8 +149,13 @@ class Nerfstudio(DataParser):
             poses.append(np.array(frame["transform_matrix"]))
             if "mask_path" in frame:
                 mask_filepath = PurePath(frame["mask_path"])
-                mask_fname = self._get_fname(mask_filepath, downsample_folder_prefix="masks_")
+                mask_fname = self._get_fname(mask_filepath, data_dir, downsample_folder_prefix="masks_")
                 mask_filenames.append(mask_fname)
+
+            if "depth_file_path" in frame:
+                depth_filepath = Path(frame["depth_file_path"])
+                depth_fname = self._get_fname(depth_filepath, data_dir, downsample_folder_prefix="depths_")
+                depth_filenames.append(depth_fname)
         if num_skipped_image_filenames >= 0:
             CONSOLE.log(f"Skipping {num_skipped_image_filenames} files in dataset split {split}.")
         assert (
@@ -157,6 +169,10 @@ class Nerfstudio(DataParser):
         ), """
         Different number of image and mask filenames.
         You should check that mask_path is specified for every frame (or zero frames) in transforms.json.
+        """
+        assert len(depth_filenames) == 0 or (len(depth_filenames) == len(image_filenames)), """
+        Different number of image and depth filenames.
+        You should check that depth_file_path is specified for every frame (or zero frames) in transforms.json.
         """
 
         # filter image_filenames and poses based on train/eval split percentage
@@ -203,6 +219,7 @@ class Nerfstudio(DataParser):
         # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
         image_filenames = [image_filenames[i] for i in indices]
         mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
+        depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
         poses = poses[indices]
 
         # in x,y,z order
@@ -261,31 +278,60 @@ class Nerfstudio(DataParser):
         if "applied_scale" in meta:
             applied_scale = float(meta["applied_scale"])
             scale_factor *= applied_scale
-        
+
+        additional_inputs_dict = {}
+        if len(depth_filenames) > 0:
+            # load into tensors
+            depth_images = []
+            for f in depth_filenames:
+                depth_image = cv2.imread(str(f.absolute()), cv2.IMREAD_ANYDEPTH)
+                depth_image = depth_image.astype(np.float64) * scale_factor * 1e-3
+                # image = cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST)
+                depth_images.append(torch.from_numpy(depth_image).float())
+
+            def get_sensor_depths(image_idx: int, sensor_depths):
+                """function to process additional sensor depths
+
+                Args:
+                    image_idx: specific image index to work with
+                    sensor_depths: semantics data
+                """
+
+                # sensor depth
+                sensor_depth = sensor_depths[image_idx]
+
+                return {"sensor_depth": sensor_depth}
+
+            additional_inputs_dict["sensor_depth"] = {
+                "func": get_sensor_depths,
+                "kwargs": {"sensor_depths": depth_images},
+            }
+
         dataparser_outputs = DataparserOutputs(
             image_filenames=image_filenames,
             cameras=cameras,
             scene_box=scene_box,
+            additional_inputs=additional_inputs_dict,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
             metadata={"transform": transform_matrix, "scale_factor": scale_factor},
         )
         return dataparser_outputs
 
-    def _get_fname(self, filepath: PurePath, downsample_folder_prefix="images_") -> Path:
+    def _get_fname(self, filepath: PurePath, data_dir: Path, downsample_folder_prefix="images_") -> Path:
         """Get the filename of the image file.
         downsample_folder_prefix can be used to point to auxillary image data, e.g. masks
         """
 
         if self.downscale_factor is None:
             if self.config.downscale_factor is None:
-                test_img = Image.open(self.config.data / filepath)
+                test_img = Image.open(data_dir / filepath)
                 h, w = test_img.size
                 max_res = max(h, w)
                 df = 0
                 while True:
                     if (max_res / 2 ** (df)) < MAX_AUTO_RESOLUTION:
                         break
-                    if not (self.config.data / f"{downsample_folder_prefix}{2**(df+1)}" / filepath.name).exists():
+                    if not (data_dir / f"{downsample_folder_prefix}{2**(df+1)}" / filepath.name).exists():
                         break
                     df += 1
 
@@ -295,5 +341,5 @@ class Nerfstudio(DataParser):
                 self.downscale_factor = self.config.downscale_factor
 
         if self.downscale_factor > 1:
-            return self.config.data / f"{downsample_folder_prefix}{self.downscale_factor}" / filepath.name
-        return self.config.data / filepath
+            return data_dir/ f"{downsample_folder_prefix}{self.downscale_factor}" / filepath.name
+        return data_dir / filepath

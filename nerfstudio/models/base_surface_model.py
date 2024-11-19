@@ -524,14 +524,6 @@ class SurfaceModel(Model):
             "normal": combined_normal,
         }
 
-        if "sensor_depth" in batch:
-            sensor_depth = batch["sensor_depth"]
-            depth_pred = outputs["depth"]
-
-            combined_sensor_depth = torch.cat([sensor_depth[..., None], depth_pred], dim=1)
-            combined_sensor_depth = colormaps.apply_depth_colormap(combined_sensor_depth)
-            images_dict["sensor_depth"] = combined_sensor_depth
-
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
         rgb = torch.moveaxis(rgb, -1, 0)[None, ...]
@@ -543,5 +535,30 @@ class SurfaceModel(Model):
         # all of these metrics will be logged as scalars
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
         metrics_dict["lpips"] = float(lpips)
+
+        if "sensor_depth" in batch:
+            sensor_depth = batch["sensor_depth"]
+            depth_pred = outputs["depth"]
+
+            try:
+                depth_acc = ((sensor_depth[..., None] - depth_pred) ** 2).mean()
+                metrics_dict["sensor_depth_acc"] = depth_acc
+                depth_difference = (sensor_depth[..., None] - depth_pred).abs()
+
+                # normalize depth_difference to (0, 1)
+                min_val = float(torch.min(depth_difference))
+                max_val = float(torch.max(depth_difference))
+                depth_difference = (depth_difference - min_val) / (max_val - min_val + 1e-10)
+                depth_difference = torch.clip(depth_difference, 0, 1)
+
+                depth_difference = colormaps.apply_colormap(depth_difference, cmap="magma")
+                images_dict["sensor_depth_diff"] = depth_difference
+            except:
+                # TODO check: sometimes colormap conversion fails
+                pass
+
+            combined_sensor_depth = torch.cat([sensor_depth[..., None], depth_pred], dim=1)
+            combined_sensor_depth = colormaps.apply_depth_colormap(combined_sensor_depth)
+            images_dict["sensor_depth"] = combined_sensor_depth
 
         return metrics_dict, images_dict
